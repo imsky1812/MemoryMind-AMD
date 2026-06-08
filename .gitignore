@@ -1,0 +1,32 @@
+# Environment
+.env
+*.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Qdrant local storage
+qdrant_data/
+
+# HuggingFace model cache (large, re-downloadable)
+# Uncomment if you want to exclude:
+# ~/.cache/huggingface/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
