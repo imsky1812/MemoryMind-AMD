@@ -31,9 +31,36 @@ def _collection_name(user_id: str) -> str:
 
 
 def ensure_collection(user_id: str) -> str:
-    """Create collection if it doesn't exist. Returns collection name."""
+    """Create collection if it doesn't exist or has mismatched dimensions. Returns collection name."""
     col = _collection_name(user_id)
-    if not client.collection_exists(col):
+    recreate = False
+    if client.collection_exists(col):
+        try:
+            info = client.get_collection(col)
+            vectors_config = info.config.params.vectors
+            if hasattr(vectors_config, "size"):
+                current_size = vectors_config.size
+            elif isinstance(vectors_config, dict):
+                # If named vectors, get the first one's size
+                current_size = list(vectors_config.values())[0].size
+            else:
+                current_size = None
+
+            if current_size is not None and current_size != VECTOR_SIZE:
+                print(f"[search] Collection '{col}' has vector size {current_size}, but model requires {VECTOR_SIZE}. Recreating collection...")
+                client.delete_collection(col)
+                recreate = True
+        except Exception as e:
+            print(f"[search] Error checking collection '{col}': {e}. Recreating to be safe.")
+            try:
+                client.delete_collection(col)
+            except Exception:
+                pass
+            recreate = True
+    else:
+        recreate = True
+
+    if recreate:
         client.create_collection(
             collection_name=col,
             vectors_config=VectorParams(
@@ -41,7 +68,7 @@ def ensure_collection(user_id: str) -> str:
                 distance=Distance.COSINE,
             ),
         )
-        print(f"[search] Created collection: {col}")
+        print(f"[search] Created collection: '{col}' with vector size: {VECTOR_SIZE}")
     return col
 
 

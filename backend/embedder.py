@@ -1,7 +1,11 @@
 # backend/embedder.py
 
+import os
 import torch
 from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ─── Device Detection ──────────────────────────────────────────────────────────
 # On AMD MI300X with ROCm: torch.cuda.is_available() returns True (ROCm exposes
@@ -16,11 +20,14 @@ else:
     print("[embedder] Running on CPU (no GPU detected - normal for local dev)")
 
 # ─── Model Load ───────────────────────────────────────────────────────────────
-# bge-m3: 1024-dim vectors, multilingual, best open-source embedding model.
-# First run downloads ~2.2 GB from HuggingFace — cached locally after that.
-print(f"[embedder] Loading BAAI/bge-m3 on {DEVICE}...")
-model = SentenceTransformer("BAAI/bge-m3", device=DEVICE)
-VECTOR_SIZE = 1024  # bge-m3 output dimension
+# Default to BAAI/bge-m3, but allow overriding to a lighter model (like
+# BAAI/bge-small-en-v1.5 or intfloat/multilingual-e5-small) to save RAM on CPU.
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+print(f"[embedder] Loading {EMBEDDING_MODEL_NAME} on {DEVICE}...")
+model = SentenceTransformer(EMBEDDING_MODEL_NAME, device=DEVICE)
+
+# Dynamically query the model's output vector size
+VECTOR_SIZE = model.get_sentence_embedding_dimension()
 
 print(f"[embedder] Model ready. Vector size: {VECTOR_SIZE}")
 

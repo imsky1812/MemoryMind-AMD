@@ -30,3 +30,7 @@ qdrant_data/
 # OS
 .DS_Store
 Thumbs.db
+
+# CDP / Wallet secrets — NEVER commit these
+cdp_api_key.json
+wallet_seed.json
