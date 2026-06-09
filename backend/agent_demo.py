@@ -24,16 +24,15 @@ API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 AGENT_USER_ID = "agent_demo_001"
 
 
-class CdpSmartWalletSigner:
-    """Client-side EVM signer that maps smart wallet requests to its owner EOA key."""
+class CdpServerWalletSigner:
+    """Client-side EVM signer that signs messages using the CDP EvmServerAccount APIs."""
 
-    def __init__(self, wallet_address: str, owner_private_key: str):
-        self.wallet_address = wallet_address
-        self.owner_account = Account.from_key(owner_private_key)
+    def __init__(self, account: Any):
+        self.account = account
 
     @property
     def address(self) -> str:
-        return self.wallet_address
+        return self.account.address
 
     def sign_typed_data(
         self,
@@ -42,7 +41,21 @@ class CdpSmartWalletSigner:
         primary_type: str,
         message: dict[str, Any],
     ) -> bytes:
-        # Normalize fields for eth_account signing
+        import asyncio
+        import nest_asyncio
+        from cdp.openapi_client.models.eip712_domain import EIP712Domain
+
+        nest_asyncio.apply()
+
+        # Build domain model for CDP
+        cdp_domain = EIP712Domain(
+            name=domain.name,
+            version=domain.version,
+            chain_id=domain.chain_id,
+            verifying_contract=domain.verifying_contract
+        )
+
+        # Convert types for CDP (expects dict[str, list[dict[str, str]]])
         types_dict = {}
         for type_name, fields in types.items():
             types_dict[type_name] = [
@@ -50,19 +63,29 @@ class CdpSmartWalletSigner:
                 for f in fields
             ]
 
-        domain_dict = {
-            "name": domain.name,
-            "version": domain.version,
-            "chainId": domain.chain_id,
-            "verifyingContract": domain.verifying_contract,
-        } if hasattr(domain, "name") else domain
+        # CDP SDK requires EIP712Domain to be explicitly declared in types
+        types_dict["EIP712Domain"] = [
+            {"name": "name", "type": "string"},
+            {"name": "version", "type": "string"},
+            {"name": "chainId", "type": "uint256"},
+            {"name": "verifyingContract", "type": "address"},
+        ]
 
-        signed = self.owner_account.sign_typed_data(
-            domain_data=domain_dict,
-            message_types=types_dict,
-            message_data=message,
+        msg_copy = message.copy()
+        if "nonce" in msg_copy and isinstance(msg_copy["nonce"], bytes):
+            msg_copy["nonce"] = "0x" + msg_copy["nonce"].hex()
+
+        # Run async signing synchronously
+        loop = asyncio.get_event_loop()
+        signature_hex = loop.run_until_complete(
+            self.account.sign_typed_data(
+                domain=cdp_domain,
+                types=types_dict,
+                primary_type=primary_type,
+                message=msg_copy
+            )
         )
-        return bytes(signed.signature)
+        return bytes.fromhex(signature_hex.removeprefix("0x"))
 
 
 
@@ -110,11 +133,39 @@ async def run_agent_demo():
         print_warn("Is the server running? Start it with: uvicorn main:app --port 8000")
         return
 
-    # ── Step 2: Agent discovers payment requirements ──────────────────────────
-    print_step(2, "Agent discovers payment requirements for /query")
+    # ── Step 2: Agent uploads knowledge to Second Brain (Free) ────────────────
+    print_step(2, "Agent ingests knowledge into Second Brain (Free)")
 
-    r = httpx.get(f"{API_BASE}/payment-info", timeout=30)
-    payment_info = r.json()
+    note_content = (
+        "MemoryMint is a decentralized pay-per-query AI Second Brain.\n"
+        "It is built for the AMD Developer Hackathon ACT II.\n"
+        "The tech stack includes BAAI/bge-small-en-v1.5 embeddings running on AMD CPU/GPU, "
+        "Qdrant vector database, and Groq llama-3.3-70b-versatile LLM.\n"
+        "Micropayments are powered by the X402 protocol, costing $0.001 USDC per query on the Base Sepolia network.\n"
+        "This demo showcases autonomous agent-to-agent commerce where the AI agent pays the resource server directly."
+    )
+
+    try:
+        files = {"file": ("demo_note.txt", note_content.encode("utf-8"), "text/plain")}
+        ingest_r = httpx.post(
+            f"{API_BASE}/ingest",
+            files=files,
+            data={"user_id": AGENT_USER_ID},
+            timeout=30.0
+        )
+        if ingest_r.status_code == 200:
+            print_ok("Ingested demo_note.txt successfully!")
+            print(f"  Response: {ingest_r.json()}")
+        else:
+            print_warn(f"Failed to ingest: {ingest_r.status_code} - {ingest_r.text}")
+    except Exception as e:
+        print_warn(f"Ingestion failed: {e}")
+
+    # ── Step 3: Agent discovers payment requirements ──────────────────────────
+    print_step(3, "Agent discovers payment requirements for /query")
+
+    payment_info_r = httpx.get(f"{API_BASE}/payment-info", timeout=30)
+    payment_info = payment_info_r.json()
     accepts = payment_info["payment_required"]["accepts"][0]
     price = accepts["maxAmountRequired"]
     pay_to = accepts["payTo"]
@@ -127,28 +178,28 @@ async def run_agent_demo():
     print_ok(f"Network: {network}")
     print_ok(f"Agent decision: WILL PAY - cost is acceptable")
 
-    # ── Step 3: Agent tries /query without payment (expects 402) ─────────────
-    print_step(3, "Agent attempts /query WITHOUT payment (expect HTTP 402)")
+    # ── Step 4: Agent tries /query without payment (expects 402) ─────────────
+    print_step(4, "Agent attempts /query WITHOUT payment (expect HTTP 402)")
 
-    r = httpx.post(f"{API_BASE}/query", data={
+    unpaid_r = httpx.post(f"{API_BASE}/query", data={
         "user_id": AGENT_USER_ID,
-        "question": "What documents are in this brain and what are their main topics?"
+        "question": "What is the tech stack of MemoryMint and how are micropayments handled?"
     }, timeout=30)
 
-    print_ok(f"HTTP status: {r.status_code}")
-    if r.status_code == 402:
+    print_ok(f"HTTP status: {unpaid_r.status_code}")
+    if unpaid_r.status_code == 402:
         print_ok("Got 402 Payment Required as expected!")
-        body = r.json()
+        body = unpaid_r.json()
         print(f"\n  402 Response body (truncated):")
         print(f"  {json.dumps(body, indent=2)[:400]}...")
-    elif r.status_code == 200:
+    elif unpaid_r.status_code == 200:
         print_warn("Got 200 - X402 middleware may not be active (WALLET_ADDRESS not set?)")
         print_warn("Check server logs for '[payment] WARNING' messages")
     else:
-        print_warn(f"Unexpected status: {r.status_code}")
+        print_warn(f"Unexpected status: {unpaid_r.status_code}")
 
-    # ── Step 4: Agent makes payment ───────────────────────────────────────────
-    print_step(4, "Agent makes X402 payment on Base Sepolia")
+    # ── Step 5: Agent makes payment ───────────────────────────────────────────
+    print_step(5, "Agent makes X402 payment on Base Sepolia")
 
     print(f"  Initiating payment of ${price} {asset} to {pay_to[:20]}...")
     payment_proof = None
@@ -203,21 +254,13 @@ async def run_agent_demo():
             else:
                 t_pay = time.perf_counter()
 
-                # Instead of sending a direct transfer, generate EIP-3009 signature using x402Client
-                # Parse owner EOA private key from CDP_WALLET_SECRET
-                secret_bytes = base64.b64decode(os.getenv("CDP_WALLET_SECRET"))
-                idx = secret_bytes.find(b"\x02\x01\x01\x04\x20")
-                if idx == -1:
-                    raise ValueError("Could not extract owner private key from CDP_WALLET_SECRET")
-                private_key_hex = secret_bytes[idx+5 : idx+37].hex()
-
                 x402_client = x402Client()
-                signer = CdpSmartWalletSigner(wallet_address, private_key_hex)
+                signer = CdpServerWalletSigner(account)
                 x402_client.register("base-sepolia", ExactEvmScheme(signer))
                 x402_client.register("eip155:84532", ExactEvmScheme(signer))
 
-                # Extract PAYMENT-REQUIRED header from Step 3 response
-                payment_required_header = r.headers.get("payment-required")
+                # Extract PAYMENT-REQUIRED header from Step 4 response
+                payment_required_header = unpaid_r.headers.get("payment-required")
                 if not payment_required_header:
                     raise ValueError("No PAYMENT-REQUIRED header in 402 response")
 
@@ -243,15 +286,15 @@ async def run_agent_demo():
         print_warn("Using mock payment proof for demo continuation...")
         payment_proof = "MOCK_PAYMENT_FOR_DEMO"
 
-    # ── Step 5: Agent retries /query with payment proof ───────────────────────
-    print_step(5, "Agent retries /query WITH X-PAYMENT header")
+    # ── Step 6: Agent retries /query with payment proof ───────────────────────
+    print_step(6, "Agent retries /query WITH X-PAYMENT header")
 
     t0 = time.perf_counter()
-    r = httpx.post(
+    paid_r = httpx.post(
         f"{API_BASE}/query",
         data={
             "user_id": AGENT_USER_ID,
-            "question": "What documents are in this brain and what are their main topics?"
+            "question": "What is the tech stack of MemoryMint and how are micropayments handled?"
         },
         headers={
             "Payment-Signature": payment_proof,
@@ -261,11 +304,11 @@ async def run_agent_demo():
     )
     elapsed = time.perf_counter() - t0
 
-    print_ok(f"HTTP status: {r.status_code}")
+    print_ok(f"HTTP status: {paid_r.status_code}")
     print_ok(f"Response time: {elapsed:.2f}s")
 
-    if r.status_code == 200:
-        result = r.json()
+    if paid_r.status_code == 200:
+        result = paid_r.json()
         print(f"\n  ANSWER FROM SECOND BRAIN:")
         print(f"  {'-'*54}")
         answer_lines = result["answer"].split("\n")
@@ -281,7 +324,7 @@ async def run_agent_demo():
         print_ok(f"Payment verified: {pay_result.get('verified')}")
         print_ok(f"Amount charged: ${pay_result.get('amount')} {pay_result.get('asset')}")
     else:
-        print_warn(f"Response: {r.text[:400]}")
+        print_warn(f"Response: {paid_r.text[:400]}")
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'='*60}")
