@@ -1,0 +1,1 @@
+MemoryMint test note for Week 2 payment testing. The project deadline is July 11, 2026. This is a pay-per-query Second Brain using X402 protocol on Base chain.

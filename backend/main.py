@@ -159,6 +159,14 @@ async def ingest_document(
     Upload a PDF or TXT file and embed it into the user's brain.
     Free — no payment required. Users should not pay to upload their own data.
     """
+    existing_sources = list_sources(user_id)
+    existing_filenames = {s if isinstance(s, str) else s["filename"] for s in existing_sources}
+  
+    if file.filename in existing_filenames:
+         raise HTTPException(
+           status_code=409,
+           detail=f"File '{file.filename}' already exists"
+    )
     allowed_extensions = {".pdf", ".txt"}
     ext = os.path.splitext(file.filename or "")[1].lower()
 

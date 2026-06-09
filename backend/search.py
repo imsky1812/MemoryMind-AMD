@@ -11,6 +11,7 @@ from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
+    FilterSelector
 )
 from embedder import embed_single, VECTOR_SIZE
 
@@ -18,7 +19,7 @@ load_dotenv()
 
 # ─── Qdrant Client ────────────────────────────────────────────────────────────
 client = QdrantClient(
-    host=os.getenv("QDRANT_HOST", "localhost"),
+    host=os.getenv("QDRANT_HOST",  "localhost"),
     port=int(os.getenv("QDRANT_PORT", 6333)),
 )
 
@@ -124,16 +125,18 @@ def similarity_search(
         return []
 
     query_vector = embed_single(query)
-
     query_filter = None
-    if source_filter:
+    if not query_vector:
+       return []
+    
+    elif source_filter:
         query_filter = Filter(
             must=[FieldCondition(key="source", match=MatchValue(value=source_filter))]
         )
 
     response = client.query_points(
         collection_name=col,
-        query=query_vector,
+        query_vector=query_vector,
         limit=top_k,
         score_threshold=score_threshold,
         query_filter=query_filter,
@@ -195,11 +198,18 @@ def delete_source(user_id: str, source_name: str) -> int:
     before = client.get_collection(col).points_count or 0
 
     client.delete(
-        collection_name=col,
-        points_selector=Filter(
-            must=[FieldCondition(key="source", match=MatchValue(value=source_name))]
-        ),
-    )
+    collection_name=col,
+    points_selector=FilterSelector(
+        filter=Filter(
+            must=[
+                FieldCondition(
+                    key="source",
+                    match=MatchValue(value=source_name),
+                )
+            ]
+        )
+    ),
+)
 
     after = client.get_collection(col).points_count or 0
     deleted = before - after
