@@ -15,6 +15,11 @@ from embedder import embed_chunks, DEVICE, GPU_NAME, VECTOR_SIZE, EMBEDDING_MODE
 from search import store_chunks, similarity_search, list_sources, delete_source, get_collection_info
 from rag import generate_answer, PROVIDER, MODEL
 from payment import get_payment_config, format_402_response
+from public_brain import (
+    publish_brain, get_brain_by_public_id, get_brain_by_owner,
+    unpublish_brain, increment_query_count, list_all_brains
+)
+from earnings import record_payment, get_earnings, get_earnings_summary
 
 load_dotenv()
 
@@ -83,9 +88,22 @@ try:
     # Add ASGI middleware using FastAPI decorator
     @app.middleware("http")
     async def x402_middleware(request, call_next):
-        # We only protect /query path
+        # We protect /query path and public query paths
         if request.url.path == "/query":
             return await fastapi_payment_middleware(routes, server)(request, call_next)
+        elif request.url.path.startswith("/brain/") and request.url.path.endswith("/query"):
+            # Construct a dynamic routes dictionary for this specific path!
+            dynamic_routes = {
+                f"POST {request.url.path}": {
+                    "accepts": {
+                        "scheme": "exact",
+                        "payTo": payment_config["payTo"],
+                        "price": f"${payment_config['maxAmountRequired']}",
+                        "network": payment_config["network"],
+                    }
+                }
+            }
+            return await fastapi_payment_middleware(dynamic_routes, server)(request, call_next)
         return await call_next(request)
 
     print(f"[payment] X402 middleware active - ${payment_config['maxAmountRequired']} USDC per /query on {payment_config['network']}")
@@ -284,6 +302,161 @@ async def remove_source(user_id: str, source_name: str):
         "user_id": user_id,
         "chunks_deleted": deleted,
     }
+
+
+# ─── Public Brain endpoints ──────────────────────────────────────────────────
+
+from pydantic import BaseModel
+
+class PublishBrainRequest(BaseModel):
+    user_id: str
+    title: str
+    description: str = ""
+
+
+@app.post("/brain/publish")
+async def publish_brain_endpoint(req: PublishBrainRequest):
+    """
+    Publish a user's brain publicly.
+    Creates a shareable URL: /brain/{public_id}
+    Brain owner earns USDC when others query their public brain.
+    """
+    brain = publish_brain(
+        owner_user_id=req.user_id,
+        title=req.title,
+        description=req.description,
+    )
+    return {
+        "status": "published",
+        "public_id": brain["public_id"],
+        "share_url": f"/brain/{brain['public_id']}",
+        "brain": brain,
+    }
+
+
+@app.get("/brain/{public_id}")
+async def get_public_brain(public_id: str):
+    """
+    Fetch metadata for a public brain.
+    Used by the /brain/[public_id] frontend page to show title, description, source count.
+    Does NOT require payment — just metadata.
+    """
+    brain = get_brain_by_public_id(public_id)
+    if not brain:
+        raise HTTPException(status_code=404, detail="Brain not found or not published")
+
+    # Get source count for this brain's owner
+    sources = list_sources(brain["owner_user_id"])
+    return {
+        **brain,
+        "source_count": len(sources),
+        "sources_preview": sources[:3],  # show first 3 source names (not content)
+    }
+
+
+@app.post("/brain/{public_id}/query")
+async def query_public_brain_endpoint(
+    request: Request,
+    public_id: str,
+    question: str = Form(...),
+    querier_user_id: str = Form(...),
+):
+    """
+    Query a PUBLIC brain. Querier pays $0.001 USDC — brain owner earns it.
+    X402 middleware gates this endpoint same as /query.
+
+    querier_user_id: wallet-derived ID of whoever is asking
+    The brain owner's user_id is looked up from the public_id registry.
+
+    IMPORTANT: search runs against the OWNER's Qdrant collection,
+    not the querier's. This is what makes public brains work.
+    """
+    brain = get_brain_by_public_id(public_id)
+    if not brain:
+        raise HTTPException(status_code=404, detail="Brain not found or not published")
+
+    # Search the OWNER's collection (not querier's)
+    owner_user_id = brain["owner_user_id"]
+    chunks = similarity_search(owner_user_id, question, top_k=5)
+    result = generate_answer(question, chunks)
+
+    # Record the payment and increment query count
+    payment_header = request.headers.get("X-PAYMENT", "")
+    record_payment(
+        owner_user_id=owner_user_id,
+        querier_user_id=querier_user_id,
+        question=question,
+        sources_queried=result["sources"],
+        amount_usdc="0.001",
+        tx_hash=payment_header[:66] if payment_header.startswith("0x") else "",
+        public_id=public_id,
+    )
+    increment_query_count(public_id, "0.001")
+
+    return {
+        "question": question,
+        "answer": result["answer"],
+        "sources": result["sources"],
+        "chunks_used": result["chunk_count"],
+        "brain_title": brain["title"],
+        "owner": owner_user_id,
+        "payment": {
+            "amount": "0.001",
+            "asset": "USDC",
+            "network": get_payment_config()["network"],
+            "verified": True,
+        },
+    }
+
+
+@app.get("/brain-by-owner/{user_id}")
+async def get_brain_by_owner_endpoint(user_id: str):
+    """
+    Get the public brain published by a specific user.
+    Frontend uses this to show "Your published brain" card on the dashboard.
+    Returns 404 if user hasn't published a brain yet.
+    """
+    brain = get_brain_by_owner(user_id)
+    if not brain:
+        raise HTTPException(status_code=404, detail="No published brain for this user")
+    sources = list_sources(brain["owner_user_id"])
+    return {**brain, "source_count": len(sources)}
+
+
+@app.delete("/brain/unpublish/{user_id}")
+async def unpublish_brain_endpoint(user_id: str):
+    """Take a brain offline. Sources stay in Qdrant but public page returns 404."""
+    success = unpublish_brain(user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="No brain found for this user")
+    return {"status": "unpublished"}
+
+
+@app.get("/brains")
+async def list_brains():
+    """List all active public brains — future discovery page."""
+    return {"brains": list_all_brains(active_only=True)}
+
+
+# ─── Earnings endpoints ───────────────────────────────────────────────────────
+
+@app.get("/earnings/{user_id}")
+async def get_earnings_endpoint(user_id: str):
+    """
+    Full earnings data for a user.
+    Shows: total USDC earned, query count, per-source breakdown, transaction history.
+    Frontend /earnings page fetches this.
+    """
+    return get_earnings(user_id)
+
+
+@app.get("/earnings/{user_id}/summary")
+async def get_earnings_summary_endpoint(user_id: str):
+    """
+    Lightweight earnings summary.
+    Used by the dashboard stats bar to show "Earned: $0.012 USDC" without heavy data.
+    """
+    return get_earnings_summary(user_id)
 
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────

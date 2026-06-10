@@ -91,3 +91,58 @@ export async function getPaymentInfo(): Promise<{ endpoint: string; payment_requ
   const { data } = await api.get('/payment-info');
   return data;
 }
+
+// ── Public Brain ──────────────────────────────────────────────────────────────
+
+export async function getPublicBrain(publicId: string) {
+  const { data } = await api.get(`/brain/${publicId}`);
+  return data;
+}
+
+export async function publishBrain(userId: string, title: string, description: string) {
+  const { data } = await api.post('/brain/publish', { user_id: userId, title, description });
+  return data;
+}
+
+export async function getBrainByOwner(userId: string) {
+  const { data } = await api.get(`/brain-by-owner/${userId}`);
+  return data;
+}
+
+export async function unpublishBrain(userId: string) {
+  const { data } = await api.delete(`/brain/unpublish/${userId}`);
+  return data;
+}
+
+// ── Earnings ──────────────────────────────────────────────────────────────────
+
+export async function getEarnings(userId: string) {
+  const { data } = await api.get(`/earnings/${userId}`);
+  return data;
+}
+
+export async function getEarningsSummary(userId: string) {
+  const { data } = await api.get(`/earnings/${userId}/summary`);
+  return data;
+}
+
+// ── Public Brain Query ────────────────────────────────────────────────────────
+
+export async function queryPublicBrain(
+  publicId: string,
+  question: string,
+  querierUserId: string,
+  paymentProof: string,
+) {
+  const formData = new FormData();
+  formData.append('question', question);
+  formData.append('querier_user_id', querierUserId);
+
+  const { data } = await api.post(`/brain/${publicId}/query`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+      'X-PAYMENT': paymentProof,
+    },
+  });
+  return data;
+}

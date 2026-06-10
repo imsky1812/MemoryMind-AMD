@@ -34,3 +34,7 @@ Thumbs.db
 # CDP / Wallet secrets — NEVER commit these
 cdp_api_key.json
 wallet_seed.json
+
+# Local databases
+backend/public_brains.json
+backend/earnings.json

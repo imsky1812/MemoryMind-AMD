@@ -10,6 +10,9 @@ import { SourceList } from '@/components/SourceList';
 import { ChatWindow } from '@/components/ChatWindow';
 import { StatsBar } from '@/components/StatsBar';
 import { useMemoryMint } from '@/hooks/useMemoryMint';
+import { PublicBrainCard } from '@/components/PublicBrainCard';
+import { getBrainByOwner } from '@/lib/api';
+import Link from 'next/link';
 
 export default function DashboardPage() {
   const {
@@ -20,6 +23,7 @@ export default function DashboardPage() {
     isQuerying,
     stats,
     isConnected,
+    userId,
     loadSources,
     uploadFile,
     removeSource,
@@ -29,10 +33,21 @@ export default function DashboardPage() {
 
   const [selectedSource, setSelectedSource] = useState<string | undefined>(undefined);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [publishedBrain, setPublishedBrain] = useState<any>(null);
 
   useEffect(() => {
     loadSources();
   }, [loadSources]);
+
+  useEffect(() => {
+    if (userId && isConnected) {
+      getBrainByOwner(userId)
+        .then(setPublishedBrain)
+        .catch(() => setPublishedBrain(null));
+    } else {
+      setPublishedBrain(null);
+    }
+  }, [userId, isConnected]);
 
   const handleAsk = (question: string) => {
     askQuestion(question, selectedSource);
@@ -89,12 +104,27 @@ export default function DashboardPage() {
               onSelectSource={setSelectedSource}
             />
           </div>
+
+          {/* Public Brain Publishing Card */}
+          {isConnected && userId && (
+            <PublicBrainCard
+              userId={userId}
+              brain={publishedBrain}
+              onBrainChange={setPublishedBrain}
+            />
+          )}
           
           {/* Navigation Links Mock */}
           <div className="flex flex-col gap-2 mt-8">
             <p className="font-sans text-[10px] uppercase tracking-wider font-semibold text-outline mb-2 px-2">
               Navigation
             </p>
+            {isConnected && (
+              <Link href="/earnings" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-white/10 hover:text-on-surface transition-all duration-300 ease-in-out cursor-pointer">
+                <Trophy className="text-xl shrink-0 text-secondary" size={18} />
+                <span className="font-sans text-sm font-semibold">Earnings Dashboard</span>
+              </Link>
+            )}
             <a className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-white/10 hover:text-on-surface transition-all duration-300 ease-in-out cursor-pointer">
               <Sparkles className="text-xl shrink-0" size={18} />
               <span className="font-sans text-sm">Neural Links</span>
