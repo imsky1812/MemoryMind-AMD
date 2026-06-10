@@ -2,162 +2,188 @@
 
 > **AMD Developer Hackathon ACT II** | lablab.ai | Deadline: July 11, 2026
 
-Pay-per-query AI Second Brain. Upload PDFs, notes, WhatsApp exports → query in natural language → get cited answers. Every query is gated behind X402 micropayments (Week 2).
+MemoryMint is a decentralized, pay-per-query AI Second Brain. Users can upload PDFs, notes, and WhatsApp exports to build a personalized knowledge graph and query it in natural language. To ensure sustainable indexing and compute cost allocation, each query is gated behind an **X402 micropayment** ($0.001 USDC on the Base network), payable autonomously by AI agents or manually by users using MetaMask or Coinbase Wallet.
 
 ---
 
 ## Architecture
 
 ```
-PDF / TXT
-    │
-    ▼
-ingest.py  ── pdfplumber + chunker (300 chars / 50 overlap)
-    │
-    ▼
-embedder.py ── BAAI/bge-m3 on AMD MI300X (ROCm) or CPU
-    │
-    ▼
-search.py  ── Qdrant (per-user collections, cosine similarity)
-    │
-    ▼
-rag.py     ── Groq / SambaNova LLM with strict citation prompting
-    │
-    ▼
-main.py    ── FastAPI REST API
+                 +-----------------------+
+                 |   PDF / TXT / MD File |
+                 +-----------+-----------+
+                             |
+                             ▼ (Free Ingest)
+                 +-----------+-----------+
+                 |  ingest.py (Chunker)  |
+                 +-----------+-----------+
+                             |
+                             ▼
+                 +-----------+-----------+
+                 |  embedder.py (Model)  | <--- BAAI/bge-small-en-v1.5
+                 +-----------+-----------+
+                             |
+                             ▼
+                 +-----------+-----------+
+                 |  search.py (Qdrant)  |
+                 +-----------+-----------+
+                             |
+                             ▼ (USDC Gated /query)
+                 +-----------+-----------+
+                 |   X402 Payment Gate   | <--- eip155:84532 (Base Sepolia)
+                 +-----------+-----------+
+                             | (Verify Tx)
+                             ▼
+                 +-----------+-----------+
+                 |      rag.py (LLM)     | <--- Groq / SambaNova
+                 +-----------+-----------+
+                             |
+                             ▼
+                 +-----------+-----------+
+                 |   Next.js Dashboard   | <--- MetaMask / Coinbase Wallet
+                 +-----------------------+
 ```
+
+---
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Embedding | `BAAI/bge-m3` via sentence-transformers |
-| GPU Compute | AMD MI300X on AMD Developer Cloud (ROCm) |
-| Vector DB | Qdrant (Docker) |
-| LLM | Groq `llama-3.1-70b-versatile` or SambaNova `Meta-Llama-3.1-70B-Instruct` |
-| Backend | FastAPI + Python 3.11+ |
-| Payments (Week 2) | X402 Protocol (USDC on Base chain) |
-| Frontend (Week 3) | Next.js 14 App Router |
+| **Embedding** | `BAAI/bge-small-en-v1.5` via sentence-transformers (optimized for CPU/GPU memory safety) |
+| **Vector DB** | Qdrant (Docker Container) |
+| **LLM** | Groq `llama-3.3-70b-versatile` or SambaNova `Meta-Llama-3.1-70B-Instruct` |
+| **Backend** | FastAPI + Python 3.11+ |
+| **Payments (Week 2)** | X402 Protocol (Base Sepolia USDC micropayments, CDP SDK EIP-3009 transfer authorizations) |
+| **Frontend (Week 3)** | Next.js 16 App Router (TypeScript, Tailwind CSS v4, Wagmi/Viem Web3 connectors) |
 
 ---
 
-## Week 1 Setup
+## Project Structure
+
+```
+memorymint/
+├── backend/
+│   ├── main.py         # FastAPI App (ingest + query + health + payment-info)
+│   ├── ingest.py       # PDF/TXT/MD Chunker and text extractor
+│   ├── embedder.py     # SentenceTransformers CPU/GPU Embedder
+│   ├── search.py       # Qdrant client, similarity searches, and collection deletes
+│   ├── rag.py          # LLM connection (Groq/SambaNova) with strict citations
+│   ├── payment.py      # X402 payment specifications configuration
+│   └── agent_demo.py   # Autonomous EIP-3009 signing payment agent demo
+├── frontend/
+│   ├── app/            # Next.js layout, providers, and dashboard page
+│   ├── components/     # WalletConnect, UploadZone, SourceList, ChatWindow, StatsBar, PaymentReceipt
+│   ├── hooks/          # useMemoryMint unified state hook
+│   ├── lib/            # api Axios clients, wagmi configs, x402-payment Viem helpers
+│   └── types/          # Shared TypeScript type definitions
+├── .env                # Root environment file (Groq API, Qdrant, CDP Wallet secrets)
+├── setup_wallet.py     # CDP Wallet creation utility script
+└── docker-compose.yml  # Docker compose config for local Qdrant
+```
+
+---
+
+## Setup & Running Guide
 
 ### 1. Prerequisites
+* Python 3.11+
+* Node.js 18+ (with npm)
+* Docker Desktop (running)
+* Groq API key: [console.groq.com](https://console.groq.com)
+* Coinbase Developer Platform (CDP) API Key: [portal.cdp.coinbase.com](https://portal.cdp.coinbase.com)
 
-- Python 3.11+
-- Docker Desktop (running)
-- Groq API key: [console.groq.com](https://console.groq.com) (free tier available)
-  - OR SambaNova API key: [cloud.sambanova.ai](https://cloud.sambanova.ai)
-
-### 2. Clone & Configure
-
+### 2. Configure Environment `.env`
+Copy `.env.example` in the root folder to `.env`:
 ```bash
-# Copy env template and fill in your key
 cp .env.example .env
-# Edit .env: set LLM_PROVIDER=groq, GROQ_API_KEY=your_key
 ```
+Fill in the parameters:
+* `GROQ_API_KEY`: Your Groq API developer key.
+* `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET`: Loaded from your downloaded CDP API key JSON.
+* Run the wallet creation utility to generate the server's wallet and address:
+  ```bash
+  python setup_wallet.py
+  ```
+  Copy the printed `CDP_WALLET_SECRET` and `WALLET_ADDRESS` values back into your `.env`.
 
-### 3. Start Qdrant
+---
 
+### 3. Running the Backend Services
+
+#### A. Start the Vector Database (Qdrant)
+Run Qdrant in Docker:
 ```bash
 docker compose up -d
-# Verify:
+# Verify it is listening on localhost:6333:
 curl http://localhost:6333/healthz
-# Expected: {"title":"qdrant - vector search engine","version":"..."}
 ```
 
-### 4. Install Python dependencies
-
+#### B. Start the Python API Server
+Initialize your virtual environment, install dependencies, and run the FastAPI server:
 ```bash
 python -m venv venv
 venv\Scripts\activate          # Windows
 # source venv/bin/activate     # Linux/Mac
 
 pip install -r requirements.txt
-```
 
-> **On AMD MI300X (ROCm):** Replace the torch line with:
-> ```bash
-> pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.1
-> pip install -r requirements.txt
-> ```
-
-### 5. Start the API
-
-```bash
+# Run the backend (defaulting to port 8000)
 cd backend
 uvicorn main:app --reload --port 8000
 ```
+Open **http://localhost:8000/docs** to verify Swagger REST documentation.
 
-Open **http://localhost:8000/docs** for interactive Swagger UI.
-
----
-
-## API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Liveness check + GPU/LLM info |
-| `POST` | `/ingest` | Upload PDF or TXT file |
-| `POST` | `/query` | Natural language query → cited answer |
-| `GET` | `/sources/{user_id}` | List uploaded files |
-| `DELETE` | `/sources/{user_id}/{source}` | Remove a source |
-
-### Test commands
-
+#### C. Run the Autonomous AI Payment Agent Demo
+To test autonomous agent-to-agent payment verification:
 ```bash
-# Health check
-curl http://localhost:8000/health
-
-# Ingest a PDF
-curl -X POST http://localhost:8000/ingest \
-  -F "file=@/path/to/your/document.pdf" \
-  -F "user_id=sarvesh_001"
-
-# Query your brain
-curl -X POST http://localhost:8000/query \
-  -F "user_id=sarvesh_001" \
-  -F "question=What is this document about?"
-
-# List sources
-curl http://localhost:8000/sources/sarvesh_001
-
-# Delete a source
-curl -X DELETE http://localhost:8000/sources/sarvesh_001/document.pdf
+# Verify you have testnet USDC on Base Sepolia inside your CDP Wallet (faucet: https://faucet.circle.com)
+python backend/agent_demo.py
 ```
 
 ---
 
-## AMD GPU Benchmark
+### 4. Running the Next.js Frontend Dashboard
+
+Navigate to the frontend folder, create environment configurations, install dependencies, and launch:
 
 ```bash
-# After activating venv, from project root:
-python backend/embedder.py
-```
+cd frontend
 
-Screenshot the output for your hackathon demo video.
+# Set up local Next.js env (pointing to backend port 8000 and base-sepolia)
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
+echo "NEXT_PUBLIC_NETWORK=base-sepolia" >> .env.local
+
+# Install dependencies (use legacy-peer-deps to avoid wagmi version conflicts)
+npm install --legacy-peer-deps
+
+# Build the optimized production bundle
+npm run build
+
+# Start the dashboard server (defaulting to port 3000)
+npm run start
+```
+Open **`http://localhost:3000`** in your browser to access the dashboard.
 
 ---
 
-## Week 1 Checklist
-
-- [ ] Qdrant running: `curl http://localhost:6333/healthz` returns ok
-- [ ] `POST /ingest` returns `chunks_stored > 0`
-- [ ] `POST /query` returns answer with `[Source: ...]` citations
-- [ ] `GET /sources/{user_id}` lists uploaded files
-- [ ] AMD VM: `torch.cuda.is_available()` returns `True`
-- [ ] AMD VM: benchmark screenshot saved
-- [ ] 60-second screen recording saved (rocm-smi + ingest + query)
+## Step-by-Step UI Verification Flow
+1. Open **`http://localhost:3000`** and select **Connect Wallet** in the top right. Connect MetaMask or Coinbase Wallet.
+2. Check that the header updates to show your truncated address and a **green pulsing status indicator**.
+3. Drag a PDF or TXT file onto the dashed upload zone in the left panel. Confirm the progress bar fills and raises a `"chunks stored"` success notification.
+4. Click on the file in the sidebar list if you wish to **filter queries to that source only** (indicated by an active blue border and tag).
+5. Type a question in the chat input and press enter.
+6. Approve the **$0.001 USDC** transfer transaction in the MetaMask wallet popup.
+7. Once confirmed on-chain, watch the RAG answer stream in with **inline citations** and an absolute **green payment receipt badge** linking directly to the Sepolia Basescan explorer!
 
 ---
 
 ## Roadmap
 
-| Week | Focus |
-|---|---|
-| ✅ 1 | Core RAG pipeline (this) |
-| 2 | X402 payment gate on `/query` + agent demo script |
-| 3 | Next.js frontend — upload UI, chat, wallet connect |
-| 4 | Public brain sharing, earnings dashboard, Python SDK |
-| 5 | Demo video, submission polish, deploy on AMD Developer Cloud |
+| Week | Status | Focus |
+|---|---|---|
+| 1 | ✅ Done | Core RAG pipeline (PDF parsing, embeddings, Qdrant search, LLM citations) |
+| 2 | ✅ Done | X402 payment gate middleware, autonomous signature recovery client |
+| 3 | ✅ Done | Next.js single-page glassmorphic UI, Web3 wallet connectors, paid chat, and badge receipts |
+| 4 | Planned | Public brain sharing links, earnings metadata dashboard, Python client SDK |
+| 5 | Planned | VM deployment on AMD Developer Cloud, benchmarking, final video submission |
