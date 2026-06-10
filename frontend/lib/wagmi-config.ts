@@ -11,10 +11,13 @@ const activeChain = isDev ? baseSepolia : base;
 export const wagmiConfig = createConfig({
   chains: [activeChain],
   connectors: [
-    injected({ target: 'metaMask' }),
+    injected(), // Detects any injected wallet (MetaMask, Brave, etc.)
     coinbaseWallet({
       appName: 'MemoryMint',
-      preference: 'all', // supports smart wallet + injected
+      appLogoUrl: 'https://i.imgur.com/YDhS1nK.png',
+      // 'eoaOnly' avoids the smart wallet popup window (which popup blockers block)
+      // 'all' lets Coinbase Wallet choose — use 'eoaOnly' for dev compatibility
+      preference: 'eoaOnly',
     }),
   ],
   transports: {
