@@ -20,7 +20,16 @@ export async function getHealth(): Promise<HealthResponse> {
 
 export async function getSources(userId: string): Promise<Source[]> {
   const { data } = await api.get(`/sources/${userId}`);
-  return data.sources || [];
+  const raw = data.sources || [];
+  return raw.map((item: any) => {
+    if (typeof item === 'string') {
+      return { filename: item, chunks: 0 };
+    }
+    return {
+      filename: item?.filename || '',
+      chunks: item?.chunks || 0,
+    };
+  });
 }
 
 export async function deleteSource(userId: string, filename: string): Promise<void> {
