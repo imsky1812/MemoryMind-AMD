@@ -9,6 +9,15 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  webpack: (config) => {
+    config.externals = config.externals || [];
+    if (Array.isArray(config.externals)) {
+      config.externals.push("accounts");
+    } else if (typeof config.externals === "object") {
+      config.externals["accounts"] = "accounts";
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

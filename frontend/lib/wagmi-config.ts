@@ -15,9 +15,10 @@ export const wagmiConfig = createConfig({
     coinbaseWallet({
       appName: 'MemoryMint',
       appLogoUrl: 'https://i.imgur.com/YDhS1nK.png',
-      // 'eoaOnly' avoids the smart wallet popup window (which popup blockers block)
-      // 'all' lets Coinbase Wallet choose — use 'eoaOnly' for dev compatibility
-      preference: 'eoaOnly',
+      // preference options configures Coinbase Wallet behavior
+      preference: {
+        options: 'eoaOnly',
+      },
     }),
   ],
   transports: {

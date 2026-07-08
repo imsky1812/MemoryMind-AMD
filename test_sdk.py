@@ -35,12 +35,15 @@ if public_id:
 
 # Test 2: Full query with payment
 # Only runs if CDP wallet is configured in .env
-if os.getenv("CDP_API_KEY_NAME") and public_id:
+cdp_name = os.getenv("CDP_API_KEY_ID") or os.getenv("CDP_API_KEY_NAME")
+cdp_secret = os.getenv("CDP_API_KEY_SECRET") or os.getenv("CDP_API_KEY_PRIVATE_KEY")
+
+if cdp_name and cdp_secret and public_id:
     print("Test 2: query() — with X402 payment")
     client_with_payment = MemoryMintClient(
         api_url="http://localhost:8000",
-        cdp_api_key_name=os.getenv("CDP_API_KEY_NAME"),
-        cdp_api_key_private_key=os.getenv("CDP_API_KEY_PRIVATE_KEY"),
+        cdp_api_key_name=cdp_name,
+        cdp_api_key_private_key=cdp_secret,
         wallet_id=os.getenv("WALLET_ID"),
         wallet_seed_path="wallet_seed.json",
         network="base-sepolia",

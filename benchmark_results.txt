@@ -1,0 +1,14 @@
+MemoryMint — AMD MI300X vs CPU Embedding Benchmark
+Model : BAAI/bge-small-en-v1.5
+Chunks: 100
+
+=======================================================
+  Benchmarking on: CPU
+=======================================================
+  Chunks embedded : 100
+  Total time      : 1.41s
+  Throughput      : 70.8 chunks/sec
+  Per chunk       : 14.1 ms
+  Vector shape    : (100, 384)
+
+  No AMD GPU detected. Run on AMD Developer Cloud VM.
