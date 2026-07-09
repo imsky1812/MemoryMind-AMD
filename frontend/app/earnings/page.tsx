@@ -37,6 +37,11 @@ export default function EarningsPage() {
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
   const [brain, setBrain] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Deriving stable ID for user Qdrant collection/registry lookup
   const userId = address ? `user_${address.slice(2, 10).toLowerCase()}` : null;
@@ -58,6 +63,32 @@ export default function EarningsPage() {
       setLoading(false);
     });
   }, [userId]);
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen text-on-surface antialiased bg-surface-container-lowest font-sans flex flex-col items-center justify-center p-6">
+        {/* Floating Neon Mesh */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-40">
+          <div className="absolute top-1/4 left-1/4 w-[40vw] h-[40vw] bg-primary/20 rounded-full blur-[120px] animate-pulse"></div>
+          <div className="absolute bottom-1/4 right-1/4 w-[45vw] h-[45vw] bg-secondary/20 rounded-full blur-[140px]"></div>
+        </div>
+        <div className="glass-card max-w-md w-full rounded-3xl border border-white/10 p-8 text-center shadow-2xl relative z-10">
+          <Trophy size={48} className="text-secondary mx-auto mb-4" />
+          <h2 className="font-headline text-2xl font-bold mb-2 text-on-surface">Earnings Vault</h2>
+          <p className="font-sans text-sm text-outline mb-6">
+            Connect your Web3 wallet to access your earnings details, public brain analytics, and payment streams.
+          </p>
+          <div className="flex justify-center mb-6">
+            <WalletConnect />
+          </div>
+          <Link href="/" className="font-sans text-xs text-primary font-semibold hover:underline flex items-center justify-center gap-1.5 transition-all">
+            <ArrowLeft size={12} />
+            Back to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (!isConnected) {
     return (

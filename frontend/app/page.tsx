@@ -34,6 +34,11 @@ export default function DashboardPage() {
   const [selectedSource, setSelectedSource] = useState<string | undefined>(undefined);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [publishedBrain, setPublishedBrain] = useState<any>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     loadSources();
@@ -106,7 +111,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Public Brain Publishing Card */}
-          {isConnected && userId && (
+          {mounted && isConnected && userId && (
             <PublicBrainCard
               userId={userId}
               brain={publishedBrain}
@@ -119,7 +124,7 @@ export default function DashboardPage() {
             <p className="font-sans text-[10px] uppercase tracking-wider font-semibold text-outline mb-2 px-2">
               Navigation
             </p>
-            {isConnected && (
+            {mounted && isConnected && (
               <Link href="/earnings" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-white/10 hover:text-on-surface transition-all duration-300 ease-in-out cursor-pointer">
                 <Trophy className="text-xl shrink-0 text-secondary" size={18} />
                 <span className="font-sans text-sm font-semibold">Earnings Dashboard</span>

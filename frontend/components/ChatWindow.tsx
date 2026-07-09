@@ -27,6 +27,11 @@ export function ChatWindow({
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -182,9 +187,9 @@ export function ChatWindow({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={!isConnected || isQuerying}
+              disabled={!mounted || !isConnected || isQuerying}
               placeholder={
-                !isConnected 
+                (!mounted || !isConnected)
                   ? 'Connect wallet first to access memories...' 
                   : selectedSource 
                     ? `Ask about ${selectedSource}...`
@@ -197,7 +202,7 @@ export function ChatWindow({
             
             <button
               onClick={handleSubmit}
-              disabled={!isConnected || isQuerying || !input.trim()}
+              disabled={!mounted || !isConnected || isQuerying || !input.trim()}
               className="p-3 bg-gradient-to-r from-primary to-secondary text-background rounded-xl hover:opacity-90 transition-opacity shrink-0 shadow-[0_0_15px_rgba(172,199,255,0.3)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isQuerying ? (

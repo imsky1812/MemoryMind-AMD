@@ -166,8 +166,8 @@ def get_collection_info(user_id: str) -> dict:
     }
 
 
-def list_sources(user_id: str) -> list[str]:
-    """Return distinct source filenames in user's collection."""
+def list_sources(user_id: str) -> list[dict]:
+    """Return distinct source filenames in user's collection with chunk counts."""
     col = _collection_name(user_id)
     if not client.collection_exists(col):
         return []
@@ -179,8 +179,17 @@ def list_sources(user_id: str) -> list[str]:
         with_vectors=False,
     )
 
-    sources = list({r.payload.get("source", "") for r in results})
-    return sorted(s for s in sources if s)
+    # Count occurrences
+    counts = {}
+    for r in results:
+        src = r.payload.get("source", "")
+        if src:
+            counts[src] = counts.get(src, 0) + 1
+
+    return [
+        {"filename": name, "chunks": count}
+        for name, count in sorted(counts.items())
+    ]
 
 
 def delete_source(user_id: str, source_name: str) -> int:

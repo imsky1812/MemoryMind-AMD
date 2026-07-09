@@ -26,6 +26,11 @@ export default function PublicBrainPage() {
   const [input, setInput] = useState('');
   const [isQuerying, setIsQuerying] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const userId = address ? `user_${address.slice(2, 10).toLowerCase()}` : 'anon';
 
@@ -237,7 +242,7 @@ export default function PublicBrainPage() {
 
       {/* Input controls */}
       <div className="border-t border-white/10 px-gutter py-4 bg-surface-container/60 backdrop-blur-xl relative z-10 shrink-0">
-        {!isConnected && (
+        {mounted && !isConnected && (
           <p className="font-sans text-xs text-secondary text-center mb-3 font-semibold">
             Connect wallet to query this brain ($0.001 USDC on Base Sepolia per query)
           </p>
@@ -247,13 +252,13 @@ export default function PublicBrainPage() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleAsk()}
-            placeholder={isConnected ? "Ask this brain a question..." : "Connect wallet to ask..."}
-            disabled={!isConnected || isQuerying}
+            placeholder={mounted && isConnected ? "Ask this brain a question..." : "Connect wallet to ask..."}
+            disabled={!mounted || !isConnected || isQuerying}
             className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 text-sm text-on-surface placeholder-outline focus:outline-none focus:border-primary focus:bg-white/10 transition-all disabled:opacity-50"
           />
           <button
             onClick={handleAsk}
-            disabled={!isConnected || !input.trim() || isQuerying}
+            disabled={!mounted || !isConnected || !input.trim() || isQuerying}
             className="bg-gradient-to-r from-primary to-secondary text-background hover:opacity-90 disabled:opacity-40 px-6 py-3.5 rounded-2xl text-sm font-bold active:scale-95 transition-all shadow-[0_0_15px_rgba(172,199,255,0.3)] flex items-center gap-2 cursor-pointer"
           >
             <Send size={15} />

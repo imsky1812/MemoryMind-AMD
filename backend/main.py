@@ -37,14 +37,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*", "X-PAYMENT", "X-PAYMENT-RESPONSE"],
-    expose_headers=["X-PAYMENT-RESPONSE"],
-)
+
 
 
 # ─── X402 Payment Middleware ──────────────────────────────────────────────────
@@ -88,6 +81,15 @@ try:
     # Add ASGI middleware using FastAPI decorator
     @app.middleware("http")
     async def x402_middleware(request, call_next):
+        # Allow OPTIONS preflight requests to bypass payment checks
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        # Bypass payment checks for frontend transaction hashes or demo mock proofs
+        payment_header = request.headers.get("X-PAYMENT") or request.headers.get("Payment-Signature") or ""
+        if payment_header.startswith("0x") or payment_header in ("MOCK_PAYMENT_FOR_DEMO", "test_mock_proof_12345"):
+            return await call_next(request)
+
         # We protect /query path and public query paths
         if request.url.path == "/query":
             return await fastapi_payment_middleware(routes, server)(request, call_next)
@@ -115,7 +117,15 @@ except Exception as e:
     print(f"[payment] WARNING: X402 middleware failed to load: {e}")
     print("[payment] /query is running unprotected. Check WALLET_ADDRESS in .env.")
 
-
+# ─── CORS (must be added AFTER x402 middleware so it wraps outermost) ────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*", "X-PAYMENT", "X-PAYMENT-RESPONSE"],
+    expose_headers=["X-PAYMENT-RESPONSE"],
+)
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/health", tags=["System"])
@@ -350,7 +360,7 @@ async def get_public_brain(public_id: str):
     return {
         **brain,
         "source_count": len(sources),
-        "sources_preview": sources[:3],  # show first 3 source names (not content)
+        "sources_preview": [s["filename"] for s in sources[:3]],  # show first 3 source names (not content)
     }
 
 

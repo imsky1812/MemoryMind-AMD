@@ -12,6 +12,11 @@ export function WalletConnect() {
   const { disconnect } = useDisconnect();
   const [showOptions, setShowOptions] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -35,7 +40,7 @@ export function WalletConnect() {
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
 
-  if (isConnected && address) {
+  if (mounted && isConnected && address) {
     return (
       <div className="flex items-center gap-2 relative" ref={dropdownRef}>
         <button
